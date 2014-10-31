@@ -23,7 +23,7 @@ func main() {
 
 1、处理从VCR里导出的txt文档：
 
-	请将转出的txt文件拖到本程序上，本程序将自动根据文本判断出是CAN还是非CAN的文件（默认非CAN），将生成名为 原文件名_M.ini （Modifiled）的文件在同一目录下。
+	请将转出的txt文件拖到本程序上，本工具将自动根据文本判断出是CAN还是非CAN的文件（默认非CAN），将生成名为 原文件名_M.ini （Modifiled）的文件在同一目录下。
 
 2、处理ini（BMW CAN、BMW UDS）文件：
 	可处理如下情况：
@@ -36,7 +36,7 @@ func main() {
 
 3、本工具支持多文件处理。
 
-
+最新版本 https://github.com/wweir/BMW_Toolbox
 有任何问题，联系 Wei.Wei@snapon.com
 按<Enter>退出`)
 		fmt.Scanln()
