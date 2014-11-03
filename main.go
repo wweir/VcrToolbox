@@ -34,6 +34,9 @@ func main() {
 		TX,6F1情况
 		TX,6F1,4,40 30 00 00,
 
+		长度位多0
+		TX,663,06,F1 04 71 01 0F 0C,
+
 3、本工具支持多文件处理。
 
 最新版本  https://github.com/wweir/BMW_Toolbox
@@ -46,6 +49,7 @@ func main() {
 	for i, _ := range *filelist {
 		if (*filelist)[i].isIni {
 			(*filelist)[i].File = trimTX6F1((*filelist)[i].File)
+			lengthError((*filelist)[i].File)
 			iniTrimBellyfat((*filelist)[i].File)
 			ioutil.WriteFile((*filelist)[i].FileName+"_M.ini", bytes.Join(*((*filelist)[i].File), []byte{13, 10}), 0666)
 		} else {
@@ -193,6 +197,15 @@ func trimTX6F1(lines *[][]byte) *[][]byte {
 		}
 	}
 	return &out
+}
+
+//TX,663,06,F1 04 71 01 0F 0C,
+func lengthError(lines *[][]byte) {
+	for i, line := range *lines {
+		if len(line) > 7 && line[7] == byte(0x30) {
+			(*lines)[i] = append(line[:7], line[8:]...)
+		}
+	}
 }
 
 //对ini文件末尾多余的00之类的东西进行去除
