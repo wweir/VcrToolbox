@@ -204,10 +204,22 @@ func vcrNoCAN(lines *[][]byte) (*[][]byte, bool) {
 
 //去除TX,6F1,4,40 30 00 00,
 func trimTX6F1(lines *[][]byte) *[][]byte {
-	var out [][]byte
-	for _, line := range *lines {
-		if !bytes.HasPrefix(line, []byte("TX,6F1,")) {
-			out = append(out, line)
+	var (
+		out      [][]byte
+		lastline string
+	)
+	for i := range *lines {
+		if bytes.HasPrefix((*lines)[i], []byte("TX,")) {
+			if string((*lines)[i][1:]) != lastline {
+				out = append(out, (*lines)[i])
+			}
+		} else {
+			out = append(out, (*lines)[i])
+		}
+		if len((*lines)[i]) > 2 {
+			lastline = string((*lines)[i][1:])
+		} else {
+			lastline = ""
 		}
 	}
 	return &out
