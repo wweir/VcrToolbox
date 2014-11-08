@@ -45,7 +45,7 @@ func main() {
 	}
 	filelist := GetFiles()
 	for i, _ := range *filelist {
-		if (*filelist)[i].fileType == 0 {
+		if (*filelist)[i].fileType == 0 { //txt
 			out, can := vcrCAN((*filelist)[i].File)
 			if can {
 				out = trimTX6F1(out)
@@ -55,16 +55,16 @@ func main() {
 			if rns {
 				ioutil.WriteFile((*filelist)[i].FileName+"_M.rns", bytes.Join(*out, []byte{13, 10}), 0666)
 			}
-		} else if (*filelist)[i].fileType == 1 {
+		} else if (*filelist)[i].fileType == 1 { //ini
 			out := trimTX6F1((*filelist)[i].File)
 			lengthError(out)
 			iniTrimBellyfat(out)
 			ioutil.WriteFile((*filelist)[i].FileName+"_M.ini", bytes.Join(*out, []byte{13, 10}), 0666)
-		} else if (*filelist)[i].fileType == 3 {
+		} else if (*filelist)[i].fileType == 3 { //_M.ini
 			out := getPackages((*filelist)[i].File)
 			out = DeleteRepeat(out)
 			ioutil.WriteFile((*filelist)[i].FileName+"_MM.ini", bytes.Join(*out, []byte{13, 10}), 0666)
-		} else if (*filelist)[i].fileType == 4 {
+		} else if (*filelist)[i].fileType == 4 { //_M.rns
 			out := getPackages((*filelist)[i].File)
 			out = DeleteRepeat(out)
 			outFile := append((*((*filelist)[i].File))[:9], *out...)
@@ -73,20 +73,26 @@ func main() {
 	}
 }
 
-//取出独立完整的包
+//取出独立完整的包(发包+回包)
 func getPackages(lines *[][]byte) *[][]byte {
 	var (
 		out           [][]byte
 		lastIsPackage bool
 	)
-	for i := range *lines {
-		if bytes.HasPrefix((*lines)[i], []byte("RX,")) || bytes.HasPrefix((*lines)[i], []byte(">,")) {
-			out = append(out, append([]byte{13, 10}, (*lines)[i]...))
+	for _, line := range *lines {
+		if bytes.HasPrefix(line, []byte("RX,")) || bytes.HasPrefix(line, []byte(">,")) {
+			//中继包
+			if bytes.Contains(line, []byte(",30 ")) || (bytes.HasPrefix(line, []byte("TX,6F1,")) && line[12] == 33 && line[13] == 30) {
+				out[len(out)-1] = append(out[len(out)-1], 13, 10, 13, 10) //加入换行
+				out[len(out)-1] = append(out[len(out)-1], line...)
+			} else {
+				out = append(out, append([]byte{13, 10}, line...))
+			}
 			lastIsPackage = true
-		} else if bytes.HasPrefix((*lines)[i], []byte("TX,")) || bytes.HasPrefix((*lines)[i], []byte("<,")) {
+		} else if bytes.HasPrefix(line, []byte("TX,")) || bytes.HasPrefix(line, []byte("<,")) {
 			if lastIsPackage {
 				out[len(out)-1] = append(out[len(out)-1], 13, 10) //加入换行
-				out[len(out)-1] = append(out[len(out)-1], (*lines)[i]...)
+				out[len(out)-1] = append(out[len(out)-1], line...)
 			}
 			lastIsPackage = true
 		} else {
