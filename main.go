@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"strconv"
-	"strings"
 )
 
 type file struct {
@@ -53,14 +52,14 @@ func main() {
 			iniTrimBellyfat((*filelist)[i].File)
 			ioutil.WriteFile((*filelist)[i].FileName+"_M.ini", bytes.Join(*((*filelist)[i].File), []byte{13, 10}), 0666)
 		} else {
-			if vcrIsCAN((*filelist)[i].File) {
-				(*filelist)[i].File = vcrCAN((*filelist)[i].File)
-				(*filelist)[i].File = trimTX6F1((*filelist)[i].File)
-				iniTrimBellyfat((*filelist)[i].File)
-				ioutil.WriteFile((*filelist)[i].FileName+"_M.ini", bytes.Join(*((*filelist)[i].File), []byte{13, 10}), 0666)
-			} else {
-				(*filelist)[i].File = vcrNoCAN((*filelist)[i].File)
-				ioutil.WriteFile((*filelist)[i].FileName+"_M.rns", bytes.Join(*((*filelist)[i].File), []byte{13, 10}), 0666)
+			out, can := vcrCAN((*filelist)[i].File)
+			if can {
+				out = trimTX6F1(out)
+				ioutil.WriteFile((*filelist)[i].FileName+"_M.ini", bytes.Join(*out, []byte{13, 10}), 0666)
+			}
+			out, rns := vcrNoCAN((*filelist)[i].File)
+			if rns {
+				ioutil.WriteFile((*filelist)[i].FileName+"_M.rns", bytes.Join(*out, []byte{13, 10}), 0666)
 			}
 		}
 	}
@@ -71,7 +70,7 @@ func GetFiles() *[]file {
 	fileNames := os.Args[1:]
 	files := []file{}
 	for _, fileName := range fileNames {
-		if strings.HasSuffix(fileName, ".ini") {
+		if bytes.HasSuffix([]byte(fileName), []byte(".ini")) {
 			var f file
 			f.FileName = fileName[:len(fileName)-4]
 			f.isIni = true
@@ -81,12 +80,9 @@ func GetFiles() *[]file {
 				log.Println(err)
 			}
 			File := (bytes.Split(file, []byte("\r\n")))
-			for i, _ := range File {
-				File[i] = bytes.TrimSuffix(File[i], []byte(" "))
-			}
 			f.File = &File
 			files = append(files, f)
-		} else if strings.HasSuffix(fileName, ".txt") {
+		} else if bytes.HasSuffix([]byte(fileName), []byte(".txt")) {
 			var f file
 			f.FileName = fileName[:len(fileName)-4]
 			f.isIni = false
@@ -96,58 +92,63 @@ func GetFiles() *[]file {
 				log.Println(err)
 			}
 			File := (bytes.Split(file, []byte("\r\n")))
+			out := [][]byte{}
 			for i, _ := range File {
 				File[i] = bytes.TrimSuffix(File[i], []byte(" "))
+				if len(File[i]) > 22 {
+					out = append(out, File[i][21:])
+				}
 			}
-			f.File = &File
+			f.File = &out
 			files = append(files, f)
 		}
 	}
 	return &files
 }
 
-func vcrIsCAN(lines *[][]byte) bool {
-	for _, line := range *lines {
-		if string(line[30:33]) == "CAN" && string(line[27:29]) == "RX" {
-			return true
-		}
-	}
-	return false
-}
-
-func vcrCAN(lines *[][]byte) *[][]byte {
+//CAN VCR处理
+func vcrCAN(lines *[][]byte) (*[][]byte, bool) {
 	var (
+		exist  bool
 		lastTX bool
 		out    [][]byte
 	)
 	for _, line := range *lines {
-		if string(line[30:33]) == "CAN" && string(line[27:29]) == "TX" {
+		if string(line[9:12]) == "CAN" && string(line[6:8]) == "TX" {
 			if lastTX {
 				out = append(out, []byte{})
 			}
-			tmp := append([]byte{82, 88, 44, line[36], line[37], line[38], 44, line[42], 44}, line[45:]...)
+			end := bytes.IndexByte(line, byte(']'))
+			tmp := append([]byte{82, 88, 44}, line[15:end]...)
+			tmp = append(tmp, 44, line[end+3], 44)
+			tmp = append(tmp, line[end+6:]...)
 			out = append(out, append(tmp, 44))
-
 			lastTX = false
-		} else if string(line[30:33]) == "CAN" && string(line[27:29]) == "RX" {
-			tmp := append([]byte{84, 88, 44, line[36], line[37], line[38], 44, line[42], 44}, line[45:]...)
+		} else if string(line[9:12]) == "CAN" && string(line[6:8]) == "RX" {
+			exist = true
+			end := bytes.IndexByte(line, byte(']'))
+			tmp := append([]byte{84, 88, 44}, line[15:end]...)
+			tmp = append(tmp, 44, line[end+3], 44)
+			tmp = append(tmp, line[end+6:]...)
 			out = append(out, append(tmp, 44))
 			lastTX = true
 		} else {
-			if len(line) > 22 {
-				lastTX = false
-				out = append(out, append([]byte(";"), line[21:]...))
-			}
 			lastTX = false
+			out = append(out, append([]byte(";"), line...))
 		}
 	}
-	return &out
+	return &out, exist
 }
-func vcrNoCAN(lines *[][]byte) *[][]byte {
+
+//非CAN VCR处理
+func vcrNoCAN(lines *[][]byte) (*[][]byte, bool) {
 	var (
-		lastline int
-		out      [][]byte
+		exsit      bool
+		lastLine   []byte
+		lineStatus int
+		out        [][]byte
 	)
+	//KWHS文件头
 	out = append(out, []byte{80, 114, 111, 116, 111, 99, 111, 108, 58, 48, 59, 9, 9, 9, 47, 47, 48, 58, 75, 87, 50, 48, 48, 48, 44, 32, 49, 58, 68, 83, 50, 44, 32, 50, 58, 83, 73, 78, 71, 76, 69, 44, 32, 51, 58, 73, 83, 79, 44, 32, 56, 58, 79, 84, 72, 69, 82})
 	out = append(out, []byte{66, 121, 116, 101, 70, 111, 114, 109, 97, 116, 58, 78, 95, 56, 95, 48, 95, 65, 59, 9, 9, 47, 47, 79, 124, 69, 124, 78, 95, 55, 124, 56, 95, 48, 124, 49, 124, 50, 95, 65, 124, 88, 124, 78, 124, 84, 44, 183, 214, 177, 240, 177, 237, 202, 190, 163, 186, 198, 230, 197, 188, 206, 222, 208, 163, 209, 233, 161, 162, 202, 253, 190, 221, 206, 187, 179, 164, 182, 200, 161, 162, 205, 163, 214, 185, 206, 187, 179, 164, 182, 200, 161, 162, 65, 68, 68, 186, 205, 88, 79, 82, 186, 205, 195, 187, 211, 208, 202, 253, 190, 221, 176, 252, 208, 163, 209, 233})
 	out = append(out, []byte{77, 115, 76, 101, 110, 58, 48, 48, 59, 9, 9, 9, 47, 47, 181, 218, 210, 187, 184, 246, 215, 214, 183, 251, 206, 170, 177, 237, 202, 190, 202, 253, 190, 221, 176, 252, 181, 196, 179, 164, 182, 200, 181, 196, 206, 187, 214, 195, 163, 172, 180, 211, 49, 191, 170, 202, 188, 163, 187, 181, 218, 182, 254, 184, 246, 215, 214, 183, 251, 206, 170, 48, 177, 237, 202, 190, 184, 249, 190, 221, 80, 114, 111, 116, 111, 99, 111, 108, 197, 208, 182, 207, 163, 172, 206, 170, 49, 177, 237, 202, 190, 200, 161, 181, 205, 203, 196, 206, 187, 163, 172, 206, 170, 50, 177, 237, 202, 190, 200, 161, 184, 223, 203, 196, 206, 187, 163, 172, 206, 170, 51, 177, 237, 202, 190, 200, 161, 56, 206, 187, 163, 187, 200, 231, 163, 186, 50, 51, 177, 237, 202, 190, 213, 251, 184, 246, 181, 218, 182, 254, 206, 187, 206, 170, 179, 164, 182, 200, 206, 187})
@@ -159,36 +160,49 @@ func vcrNoCAN(lines *[][]byte) *[][]byte {
 	out = append(out, []byte{})
 	out = append(out, []byte{})
 	for _, line := range *lines {
-		if string(line[30:34]) == "UART" && string(line[27:29]) == "TX" {
-			if lastline == 0 {
-				lastline = 1
-				out = append(out, append([]byte(">,"), line[36], line[37]))
-			} else if lastline == 2 {
-				lastline = 1
+		if string(line[9:13]) == "UART" && string(line[6:8]) == "TX" {
+			if lineStatus == 2 {
+				out = append(out, lastLine)
 				out = append(out, []byte{})
-				out = append(out, append([]byte(">,"), line[36], line[37]))
-			} else if lastline == 1 {
-				out[len(out)-1] = append(out[len(out)-1], byte(','), line[36], line[37])
-			} else {
-				out = append(out, append([]byte("//"), line...))
 			}
-		} else if string(line[30:34]) == "UART" && string(line[27:29]) == "RX" {
-			if lastline == 1 {
-				lastline = 2
-				out = append(out, append([]byte("<,"), line[36], line[37]))
-			} else if lastline == 2 {
-				out[len(out)-1] = append(out[len(out)-1], byte(','), line[36], line[37])
+			if len(line) > 17 {
+				t := bytes.Split(line, []byte(" "))
+				tmp := bytes.Join(t[8:], []byte(","))
+				lastLine = append([]byte(">,"), tmp...)
+			} else if lineStatus != 1 {
+				lastLine = append([]byte(">,"), line[15], line[16])
 			} else {
-				out = append(out, append([]byte("//"), line...))
+				lastLine = append(lastLine, byte(0x2C), line[15], line[16])
 			}
-		} else if len(line) > 22 {
-			lastline = 0
-			out = append(out, append([]byte("//"), line[21:]...))
+			lineStatus = 1
+		} else if string(line[9:13]) == "UART" && string(line[6:8]) == "RX" {
+			if lineStatus == 1 {
+				//过滤TX UART: 81   RX UART: 816
+				if lastLine[len(lastLine)-2] != line[15] || lastLine[len(lastLine)-1] != line[16] {
+					out = append(out, lastLine)
+					lastLine = append([]byte("<,"), line[15], line[16])
+					lineStatus = 2
+				}
+			} else if lineStatus != 2 {
+				lastLine = append([]byte("<,"), line[15], line[16])
+				lineStatus = 2
+			} else {
+				exsit = true
+				lastLine = append(lastLine, byte(0x2C), line[15], line[16])
+				lineStatus = 2
+			}
+		} else {
+			if lineStatus != 0 {
+				out = append(out, lastLine)
+			}
+			lineStatus = 0
+			out = append(out, append([]byte("//"), line...))
 		}
 	}
-	return &out
+	return &out, exsit
 }
 
+//去除TX,6F1,4,40 30 00 00,
 func trimTX6F1(lines *[][]byte) *[][]byte {
 	var out [][]byte
 	for _, line := range *lines {
