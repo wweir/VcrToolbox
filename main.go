@@ -11,7 +11,7 @@ import (
 
 type file struct {
 	FileName string
-	isIni    bool
+	fileType int // 0.txt; 1.ini; 2.rns; 3._M.ini; 4._M.rns
 	File     *[][]byte
 }
 
@@ -22,16 +22,15 @@ func main() {
 
 1、处理从VCR里导出的txt文档：
 
-	请将转出的txt文件拖到本程序上，本工具将自动根据文本判断出是CAN还是非CAN的文件（默认非CAN），将生成名为 原文件名_M.ini （Modifiled）的文件在同一目录下。
+	请将转出的txt文件拖到本工具上，本工具将自动根据文本内容生成对应 Simulator 可用的 ini 或 rns 文件，将生成名为 原文件名_M.ini (rns, M->Modified) 的文件在同一目录下。此次输出的文件包含VCR中所有包(未去重)，并且带有 VCR 中的文本注释。
+
+	再次将 原文件名_M.ini(rns) 文件拖到本工具上，将删除里面所有重复包和注释文本，生成 原文件名_MM.ini (rns) 文件。如想删除其它原有的 ini/rns 文件中的重复包，请自行为文件名加上 _M 后缀。
 
 2、处理ini（BMW CAN、BMW UDS）文件：
 	可处理如下情况：
 
 		末尾多余00
 		RX,6F1,8,40 02 1A 80 00 00 00 00,
-
-		TX,6F1情况
-		TX,6F1,4,40 30 00 00,
 
 		长度位多0
 		TX,663,06,F1 04 71 01 0F 0C,
@@ -46,12 +45,7 @@ func main() {
 	}
 	filelist := GetFiles()
 	for i, _ := range *filelist {
-		if (*filelist)[i].isIni {
-			(*filelist)[i].File = trimTX6F1((*filelist)[i].File)
-			lengthError((*filelist)[i].File)
-			iniTrimBellyfat((*filelist)[i].File)
-			ioutil.WriteFile((*filelist)[i].FileName+"_M.ini", bytes.Join(*((*filelist)[i].File), []byte{13, 10}), 0666)
-		} else {
+		if (*filelist)[i].fileType == 0 {
 			out, can := vcrCAN((*filelist)[i].File)
 			if can {
 				out = trimTX6F1(out)
@@ -61,8 +55,65 @@ func main() {
 			if rns {
 				ioutil.WriteFile((*filelist)[i].FileName+"_M.rns", bytes.Join(*out, []byte{13, 10}), 0666)
 			}
+		} else if (*filelist)[i].fileType == 1 {
+			out := trimTX6F1((*filelist)[i].File)
+			lengthError(out)
+			iniTrimBellyfat(out)
+			ioutil.WriteFile((*filelist)[i].FileName+"_M.ini", bytes.Join(*out, []byte{13, 10}), 0666)
+		} else if (*filelist)[i].fileType == 3 {
+			out := getPackages((*filelist)[i].File)
+			out = DeleteRepeat(out)
+			ioutil.WriteFile((*filelist)[i].FileName+"_MM.ini", bytes.Join(*out, []byte{13, 10}), 0666)
+		} else if (*filelist)[i].fileType == 4 {
+			out := getPackages((*filelist)[i].File)
+			out = DeleteRepeat(out)
+			outFile := append((*((*filelist)[i].File))[:9], *out...)
+			ioutil.WriteFile((*filelist)[i].FileName+"_MM.rns", bytes.Join(outFile, []byte{13, 10}), 0666)
 		}
 	}
+}
+
+//取出独立完整的包
+func getPackages(lines *[][]byte) *[][]byte {
+	var (
+		out           [][]byte
+		lastIsPackage bool
+	)
+	for i := range *lines {
+		if bytes.HasPrefix((*lines)[i], []byte("RX,")) || bytes.HasPrefix((*lines)[i], []byte(">,")) {
+			out = append(out, append([]byte{13, 10}, (*lines)[i]...))
+			lastIsPackage = true
+		} else if bytes.HasPrefix((*lines)[i], []byte("TX,")) || bytes.HasPrefix((*lines)[i], []byte("<,")) {
+			if lastIsPackage {
+				out[len(out)-1] = append(out[len(out)-1], 13, 10) //加入换行
+				out[len(out)-1] = append(out[len(out)-1], (*lines)[i]...)
+			}
+			lastIsPackage = true
+		} else {
+			lastIsPackage = false
+		}
+	}
+	return &out
+}
+
+//去除重复包
+func DeleteRepeat(lines *[][]byte) *[][]byte {
+	var (
+		out      [][]byte
+		isRepeat bool
+	)
+	for _, line := range *lines {
+		isRepeat = false
+		for i := range out {
+			if bytes.Equal(line, out[i]) {
+				isRepeat = true
+			}
+		}
+		if !isRepeat {
+			out = append(out, line)
+		}
+	}
+	return &out
 }
 
 //获取将要处理的文件列表，文件为拖到程序上的所有ini和txt文件
@@ -70,22 +121,10 @@ func GetFiles() *[]file {
 	fileNames := os.Args[1:]
 	files := []file{}
 	for _, fileName := range fileNames {
-		if bytes.HasSuffix([]byte(fileName), []byte(".ini")) {
+		if bytes.HasSuffix([]byte(fileName), []byte(".txt")) {
 			var f file
 			f.FileName = fileName[:len(fileName)-4]
-			f.isIni = true
-			file, err := ioutil.ReadFile(fileName)
-			if err != nil {
-				log.Println("文件", fileName, "读取出错:\n")
-				log.Println(err)
-			}
-			File := (bytes.Split(file, []byte("\r\n")))
-			f.File = &File
-			files = append(files, f)
-		} else if bytes.HasSuffix([]byte(fileName), []byte(".txt")) {
-			var f file
-			f.FileName = fileName[:len(fileName)-4]
-			f.isIni = false
+			f.fileType = 0
 			file, err := ioutil.ReadFile(fileName)
 			if err != nil {
 				log.Println("文件", fileName, "读取出错:\n")
@@ -101,6 +140,35 @@ func GetFiles() *[]file {
 			}
 			f.File = &out
 			files = append(files, f)
+		} else {
+			var (
+				f        file
+				iniOrRns bool //判断是否是ini或者rns文件
+			)
+			if bytes.HasSuffix([]byte(fileName), []byte("_M.ini")) {
+				f.FileName = fileName[:len(fileName)-6]
+				f.fileType = 3
+				iniOrRns = true
+			} else if bytes.HasSuffix([]byte(fileName), []byte("_M.rns")) {
+				f.FileName = fileName[:len(fileName)-6]
+				f.fileType = 4
+				iniOrRns = true
+			} else if bytes.HasSuffix([]byte(fileName), []byte(".ini")) {
+				var f file
+				f.FileName = fileName[:len(fileName)-4]
+				f.fileType = 1
+				iniOrRns = true
+			}
+			if iniOrRns {
+				file, err := ioutil.ReadFile(fileName)
+				if err != nil {
+					log.Println("文件", fileName, "读取出错:\n")
+					log.Println(err)
+				}
+				File := (bytes.Split(file, []byte("\r\n")))
+				f.File = &File
+				files = append(files, f)
+			}
 		}
 	}
 	return &files
