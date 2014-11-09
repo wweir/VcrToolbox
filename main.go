@@ -93,6 +93,9 @@ func getPackages(lines *[][]byte) *[][]byte {
 			if lastIsPackage {
 				out[len(out)-1] = append(out[len(out)-1], 13, 10) //加入换行
 				out[len(out)-1] = append(out[len(out)-1], line...)
+			} else {
+				out[len(out)-1] = append(out[len(out)-1], 13, 10, 13, 10) //加入换行
+				out[len(out)-1] = append(out[len(out)-1], line...)
 			}
 			lastIsPackage = true
 		} else {
