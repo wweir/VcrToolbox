@@ -37,15 +37,15 @@ func main() {
 
 3、本工具支持多文件处理。
 
-最新版本  https://github.com/wweir/BMW_Toolbox
-有任何问题，联系  Wei.Wei@snapon.com
+如有问题，请尝试最新版本  https://github.com/wweir/BMW_Toolbox
+仍有问题或有其它需求，联系  Wei.Wei@snapon.com
 按<Enter>退出`)
 		fmt.Scanln()
 		return
 	}
 	filelist := GetFiles()
 	for i, _ := range *filelist {
-		if (*filelist)[i].fileType == 0 { //txt
+		if (*filelist)[i].fileType == 1 { //txt
 			out, can := vcrCAN((*filelist)[i].File)
 			if can {
 				out = trimTX6F1(out)
@@ -55,16 +55,16 @@ func main() {
 			if rns {
 				ioutil.WriteFile((*filelist)[i].FileName+"_M.rns", bytes.Join(*out, []byte{13, 10}), 0666)
 			}
-		} else if (*filelist)[i].fileType == 1 { //ini
+		} else if (*filelist)[i].fileType == 2 { //ini
 			out := trimTX6F1((*filelist)[i].File)
 			lengthError(out)
 			iniTrimBellyfat(out)
 			ioutil.WriteFile((*filelist)[i].FileName+"_M.ini", bytes.Join(*out, []byte{13, 10}), 0666)
-		} else if (*filelist)[i].fileType == 3 { //_M.ini
+		} else if (*filelist)[i].fileType == 4 { //_M.ini
 			out := getPackages((*filelist)[i].File)
 			out = DeleteRepeat(out)
 			ioutil.WriteFile((*filelist)[i].FileName+"_MM.ini", bytes.Join(*out, []byte{13, 10}), 0666)
-		} else if (*filelist)[i].fileType == 4 { //_M.rns
+		} else if (*filelist)[i].fileType == 5 { //_M.rns
 			out := getPackages((*filelist)[i].File)
 			out = DeleteRepeat(out)
 			outFile := append((*((*filelist)[i].File))[:9], *out...)
@@ -81,8 +81,8 @@ func getPackages(lines *[][]byte) *[][]byte {
 	)
 	for _, line := range *lines {
 		if bytes.HasPrefix(line, []byte("RX,")) || bytes.HasPrefix(line, []byte(">,")) {
-			//中继包
-			if bytes.Contains(line, []byte(",30 ")) || (bytes.HasPrefix(line, []byte("TX,6F1,")) && line[12] == 33 && line[13] == 30) {
+			//中继包 30
+			if bytes.Contains(line, []byte(",30 ")) || (bytes.HasPrefix(line, []byte("TX,6F1,")) && (line[12] == 33 && line[13] == 30)) {
 				out[len(out)-1] = append(out[len(out)-1], 13, 10, 13, 10) //加入换行
 				out[len(out)-1] = append(out[len(out)-1], line...)
 			} else {
@@ -92,6 +92,10 @@ func getPackages(lines *[][]byte) *[][]byte {
 		} else if bytes.HasPrefix(line, []byte("TX,")) || bytes.HasPrefix(line, []byte("<,")) {
 			if lastIsPackage {
 				out[len(out)-1] = append(out[len(out)-1], 13, 10) //加入换行
+				out[len(out)-1] = append(out[len(out)-1], line...)
+				//中继包 21
+			} else if bytes.Contains(line, []byte(",21 ")) || bytes.Contains(line, []byte(",F1 21 ")) {
+				out[len(out)-1] = append(out[len(out)-1], 13, 10, 13, 10) //加入换行
 				out[len(out)-1] = append(out[len(out)-1], line...)
 			} else {
 				out[len(out)-1] = append(out[len(out)-1], 13, 10, 13, 10) //加入换行
@@ -133,7 +137,7 @@ func GetFiles() *[]file {
 		if bytes.HasSuffix([]byte(fileName), []byte(".txt")) {
 			var f file
 			f.FileName = fileName[:len(fileName)-4]
-			f.fileType = 0
+			f.fileType = 1
 			file, err := ioutil.ReadFile(fileName)
 			if err != nil {
 				log.Println("文件", fileName, "读取出错:\n")
@@ -156,16 +160,15 @@ func GetFiles() *[]file {
 			)
 			if bytes.HasSuffix([]byte(fileName), []byte("_M.ini")) {
 				f.FileName = fileName[:len(fileName)-6]
-				f.fileType = 3
+				f.fileType = 4
 				iniOrRns = true
 			} else if bytes.HasSuffix([]byte(fileName), []byte("_M.rns")) {
 				f.FileName = fileName[:len(fileName)-6]
-				f.fileType = 4
+				f.fileType = 5
 				iniOrRns = true
 			} else if bytes.HasSuffix([]byte(fileName), []byte(".ini")) {
-				var f file
 				f.FileName = fileName[:len(fileName)-4]
-				f.fileType = 1
+				f.fileType = 2
 				iniOrRns = true
 			}
 			if iniOrRns {
@@ -173,6 +176,7 @@ func GetFiles() *[]file {
 				if err != nil {
 					log.Println("文件", fileName, "读取出错:\n")
 					log.Println(err)
+					continue
 				}
 				File := (bytes.Split(file, []byte("\r\n")))
 				f.File = &File
