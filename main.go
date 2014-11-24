@@ -11,7 +11,7 @@ import (
 
 type file struct {
 	FileName string
-	fileType int // 1.txt; 2.ini; 3.rns; 4._M.ini; 5._M.rns; 6.(bmw)stxt(txt)
+	fileType int // 1.txt; 2.ini; 3.rns; 4._M.ini; 5._M.rns; 6.(bmw)stxt(txt); 7.CANSIMLog file
 	File     *[][]byte
 }
 
@@ -26,7 +26,7 @@ func main() {
 
 	再次将 原文件名_M.ini(rns) 文件拖到本工具上，将删除里面所有重复包和注释文本，生成 原文件名_MM.ini (rns) 文件。如想删除其它原有的 ini/rns 文件中的重复包，请自行为文件名加上 _M 后缀。
 
-2、处理BMW CAN/UDS/ComWatch 文件：
+2、处理BMW CAN/UDS/ComWatch/CANSIMLog 文件：
 	可处理如下情况：
 
 		末尾多余00
@@ -46,12 +46,13 @@ func main() {
 	filelist := GetFiles()
 	for i, _ := range *filelist {
 		if (*filelist)[i].fileType == 1 { //txt
-			out, can := vcrCAN((*filelist)[i].File)
 
+			out, can := vcrCAN((*filelist)[i].File)
 			if can {
 				out = trimTX6F1(out)
 				ioutil.WriteFile((*filelist)[i].FileName+"_M.ini", bytes.Join(*out, []byte{13, 10}), 0666)
 			}
+
 			out, rns := vcrNoCAN((*filelist)[i].File)
 			if rns {
 				ioutil.WriteFile((*filelist)[i].FileName+"_M.rns", bytes.Join(*out, []byte{13, 10}), 0666)
@@ -77,9 +78,14 @@ func main() {
 
 			outFile := append((*((*filelist)[i].File))[:9], *out...)
 			ioutil.WriteFile((*filelist)[i].FileName+"_MM.rns", bytes.Join(outFile, []byte{13, 10}), 0666)
+
 		} else if (*filelist)[i].fileType == 6 {
 			out := ComWatch((*filelist)[i].File)
 			ioutil.WriteFile((*filelist)[i].FileName+"_CM.rns", bytes.Join(*out, []byte{13, 10}), 0666)
+
+		} else if (*filelist)[i].fileType == 7 {
+			out := CanSimLog((*filelist)[i].File)
+			ioutil.WriteFile((*filelist)[i].FileName+".ini", bytes.Join(*out, []byte{13, 10}), 0666)
 		}
 	}
 }
@@ -104,11 +110,14 @@ func GetFiles() *[]file {
 
 			//For .stxt in .txt suffix
 			if bytes.HasPrefix(File[1], []byte(";ComWatch ")) {
-
 				f.fileType = 6
 				out = File
-			} else {
 
+			} else if bytes.HasSuffix([]byte(fileName), []byte("CANSIMLog.txt")) {
+				f.fileType = 7
+				out = File
+
+			} else {
 				f.fileType = 1
 
 				for i, _ := range File {
@@ -147,10 +156,12 @@ func GetFiles() *[]file {
 				f.FileName = fileName[:len(fileName)-6]
 				f.fileType = 4
 				iniOrRns = true
+
 			} else if bytes.HasSuffix([]byte(fileName), []byte("_M.rns")) {
 				f.FileName = fileName[:len(fileName)-6]
 				f.fileType = 5
 				iniOrRns = true
+
 			} else if bytes.HasSuffix([]byte(fileName), []byte(".ini")) {
 				f.FileName = fileName[:len(fileName)-4]
 				f.fileType = 2
@@ -177,7 +188,8 @@ func GetFiles() *[]file {
 
 //BMW KWHS Header
 func BMW_KWHS_Header() [][]byte {
-	return [][]byte{{80, 114, 111, 116, 111, 99, 111, 108, 58, 48, 59, 9, 9, 9, 47, 47, 48, 58, 75, 87, 50, 48, 48, 48, 44, 32, 49, 58, 68, 83, 50, 44, 32, 50, 58, 83, 73, 78, 71, 76, 69, 44, 32, 51, 58, 73, 83, 79, 44, 32, 56, 58, 79, 84, 72, 69, 82},
+	return [][]byte{
+		{80, 114, 111, 116, 111, 99, 111, 108, 58, 48, 59, 9, 9, 9, 47, 47, 48, 58, 75, 87, 50, 48, 48, 48, 44, 32, 49, 58, 68, 83, 50, 44, 32, 50, 58, 83, 73, 78, 71, 76, 69, 44, 32, 51, 58, 73, 83, 79, 44, 32, 56, 58, 79, 84, 72, 69, 82},
 		{66, 121, 116, 101, 70, 111, 114, 109, 97, 116, 58, 78, 95, 56, 95, 48, 95, 65, 59, 9, 9, 47, 47, 79, 124, 69, 124, 78, 95, 55, 124, 56, 95, 48, 124, 49, 124, 50, 95, 65, 124, 88, 124, 78, 124, 84, 44, 183, 214, 177, 240, 177, 237, 202, 190, 163, 186, 198, 230, 197, 188, 206, 222, 208, 163, 209, 233, 161, 162, 202, 253, 190, 221, 206, 187, 179, 164, 182, 200, 161, 162, 205, 163, 214, 185, 206, 187, 179, 164, 182, 200, 161, 162, 65, 68, 68, 186, 205, 88, 79, 82, 186, 205, 195, 187, 211, 208, 202, 253, 190, 221, 176, 252, 208, 163, 209, 233},
 		{77, 115, 76, 101, 110, 58, 48, 48, 59, 9, 9, 9, 47, 47, 181, 218, 210, 187, 184, 246, 215, 214, 183, 251, 206, 170, 177, 237, 202, 190, 202, 253, 190, 221, 176, 252, 181, 196, 179, 164, 182, 200, 181, 196, 206, 187, 214, 195, 163, 172, 180, 211, 49, 191, 170, 202, 188, 163, 187, 181, 218, 182, 254, 184, 246, 215, 214, 183, 251, 206, 170, 48, 177, 237, 202, 190, 184, 249, 190, 221, 80, 114, 111, 116, 111, 99, 111, 108, 197, 208, 182, 207, 163, 172, 206, 170, 49, 177, 237, 202, 190, 200, 161, 181, 205, 203, 196, 206, 187, 163, 172, 206, 170, 50, 177, 237, 202, 190, 200, 161, 184, 223, 203, 196, 206, 187, 163, 172, 206, 170, 51, 177, 237, 202, 190, 200, 161, 56, 206, 187, 163, 187, 200, 231, 163, 186, 50, 51, 177, 237, 202, 190, 213, 251, 184, 246, 181, 218, 182, 254, 206, 187, 206, 170, 179, 164, 182, 200, 206, 187},
 		{73, 115, 65, 117, 116, 111, 82, 101, 115, 112, 111, 110, 115, 101, 58, 48, 59, 9, 9, 47, 47, 206, 170, 49, 177, 237, 202, 190, 200, 231, 185, 251, 195, 187, 211, 208, 178, 233, 213, 210, 181, 189, 202, 253, 190, 221, 176, 252, 215, 212, 182, 175, 187, 216, 184, 180},
@@ -288,7 +300,7 @@ func vcrCAN(lines *[][]byte) (*[][]byte, bool) {
 				out = append(out, []byte{})
 			}
 			end := bytes.IndexByte(line, byte(']'))
-
+			//Add RX,
 			tmp := append([]byte{82, 88, 44}, line[15:end]...)
 			tmp = append(tmp, 44, line[end+3], 44)
 			tmp = append(tmp, line[end+6:]...)
@@ -299,7 +311,7 @@ func vcrCAN(lines *[][]byte) (*[][]byte, bool) {
 
 			exist = true
 			end := bytes.IndexByte(line, byte(']'))
-
+			//Add TX,
 			tmp := append([]byte{84, 88, 44}, line[15:end]...)
 			tmp = append(tmp, 44, line[end+3], 44)
 			tmp = append(tmp, line[end+6:]...)
@@ -393,6 +405,41 @@ func trimTX6F1(lines *[][]byte) *[][]byte {
 		} else {
 			lastline = ""
 		}
+	}
+	return &out
+}
+
+//CAM SIM log file
+func CanSimLog(lines *[][]byte) *[][]byte {
+	var (
+		out      [][]byte
+		lastIsTX bool
+	)
+	for i := range *lines {
+		//RX,6F1,4,72 30 00 00    ,
+		tmp := bytes.Replace((*lines)[i], []byte{0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x2C}, []byte{0x2C}, -1)
+		tmp = bytes.Replace(tmp, []byte{0x20, 0x20, 0x20, 0x20, 0x20, 0x2C}, []byte{0x2C}, -1)
+		tmp = bytes.Replace(tmp, []byte{0x20, 0x20, 0x20, 0x20, 0x2C}, []byte{0x2C}, -1)
+		tmp = bytes.Replace(tmp, []byte{0x20, 0x20, 0x20, 0x2C}, []byte{0x2C}, -1)
+		tmp = bytes.Replace(tmp, []byte{0x20, 0x20, 0x2C}, []byte{0x2C}, -1)
+		tmp = bytes.Replace(tmp, []byte{0x20, 0x2C}, []byte{0x2C}, -1)
+
+		//For black line between TX and RX lines
+		//RX this line and TX last line
+		if bytes.HasPrefix(tmp, []byte{82, 88, 44}) {
+			if lastIsTX {
+				out = append(out, []byte{})
+			} else if i != 0 && !bytes.Equal(tmp, out[len(out)-1]) {
+				out = append(out, []byte{})
+			}
+		}
+		//TX this line
+		if bytes.HasPrefix(tmp, []byte{84, 88, 44}) {
+			lastIsTX = true
+		} else {
+			lastIsTX = false
+		}
+		out = append(out, tmp)
 	}
 	return &out
 }
