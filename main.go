@@ -382,9 +382,9 @@ func vcrNoCAN(lines *[][]byte) (*[][]byte, bool) {
 			} else if lineStatus == 0 && !bytes.HasSuffix(line, []byte("RX UART: 00")) {
 				lastLine = append([]byte("<,"), line[15], line[16])
 				lineStatus = 2
+				exsit = true
 
 			} else {
-				exsit = true
 				lastLine = append(lastLine, byte(0x2C), line[15], line[16])
 				lineStatus = 2
 			}
