@@ -379,14 +379,15 @@ func vcrNoCAN(lines *[][]byte) (*[][]byte, bool) {
 					lineStatus = 2
 				}
 				//处理单独的00回包的情况
-			} else if lineStatus == 0 && !bytes.HasSuffix(line, []byte("RX UART: 00")) {
-				lastLine = append([]byte("<,"), line[15], line[16])
-				lineStatus = 2
-				exsit = true
-
+			} else if lineStatus == 0 {
+				if !bytes.HasSuffix(line, []byte("RX UART: 00")) {
+					lastLine = append([]byte("<,"), line[15], line[16])
+					lineStatus = 2
+				}
 			} else {
 				lastLine = append(lastLine, byte(0x2C), line[15], line[16])
 				lineStatus = 2
+				exsit = true
 			}
 		} else {
 			if lineStatus != 0 {
