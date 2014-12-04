@@ -15,6 +15,16 @@ type file struct {
 	File     *[][]byte
 }
 
+const (
+	txt    = 1
+	ini    = 2
+	rns    = 3
+	Mini   = 4
+	Mrns   = 5
+	stxt   = 6
+	CanSim = 7
+)
+
 func main() {
 	if len(os.Args) == 1 {
 		fmt.Println(`这是一个可以处理从VCR里导出的txt文档的工具，同时可以对ini文档作一些处理。
@@ -45,20 +55,20 @@ func main() {
 	}
 	filelist := GetFiles()
 	for i, _ := range *filelist {
-		if (*filelist)[i].fileType == 1 { //txt
+		if (*filelist)[i].fileType == txt { //txt
 
-			out, can := vcrCAN((*filelist)[i].File)
-			if can {
+			out, isOrNot := vcrCAN((*filelist)[i].File)
+			if isOrNot {
 				out = trimTX6F1(out)
 				ioutil.WriteFile((*filelist)[i].FileName+"_M.ini", bytes.Join(*out, []byte{13, 10}), 0666)
 			}
 
-			out, rns := vcrNoCAN((*filelist)[i].File)
-			if rns {
+			out, isOrNot = vcrNoCAN((*filelist)[i].File)
+			if isOrNot {
 				ioutil.WriteFile((*filelist)[i].FileName+"_M.rns", bytes.Join(*out, []byte{13, 10}), 0666)
 			}
 			//ini
-		} else if (*filelist)[i].fileType == 2 {
+		} else if (*filelist)[i].fileType == ini {
 			out := trimTX6F1((*filelist)[i].File)
 
 			lengthError(out)
@@ -66,24 +76,24 @@ func main() {
 
 			ioutil.WriteFile((*filelist)[i].FileName+"_M.ini", bytes.Join(*out, []byte{13, 10}), 0666)
 			//_M.ini
-		} else if (*filelist)[i].fileType == 4 {
+		} else if (*filelist)[i].fileType == Mini {
 			out := getPackages((*filelist)[i].File)
 			out = DeleteRepeat(out)
 
 			ioutil.WriteFile((*filelist)[i].FileName+"_MM.ini", bytes.Join(*out, []byte{13, 10}), 0666)
 			//_M.rns
-		} else if (*filelist)[i].fileType == 5 {
+		} else if (*filelist)[i].fileType == Mrns {
 			out := getPackages((*filelist)[i].File)
 			out = DeleteRepeat(out)
 
 			outFile := append((*((*filelist)[i].File))[:9], *out...)
 			ioutil.WriteFile((*filelist)[i].FileName+"_MM.rns", bytes.Join(outFile, []byte{13, 10}), 0666)
 
-		} else if (*filelist)[i].fileType == 6 {
+		} else if (*filelist)[i].fileType == stxt {
 			out := ComWatch((*filelist)[i].File)
 			ioutil.WriteFile((*filelist)[i].FileName+"_CM.rns", bytes.Join(*out, []byte{13, 10}), 0666)
 
-		} else if (*filelist)[i].fileType == 7 {
+		} else if (*filelist)[i].fileType == CanSim {
 			out := CanSimLog((*filelist)[i].File)
 			ioutil.WriteFile((*filelist)[i].FileName+".ini", bytes.Join(*out, []byte{13, 10}), 0666)
 		}
@@ -110,15 +120,15 @@ func GetFiles() *[]file {
 
 			//For .stxt in .txt suffix
 			if bytes.HasPrefix(File[1], []byte(";ComWatch ")) {
-				f.fileType = 6
+				f.fileType = stxt
 				out = File
 
 			} else if bytes.HasSuffix([]byte(fileName), []byte("CANSIMLog.txt")) {
-				f.fileType = 7
+				f.fileType = CanSim
 				out = File
 
 			} else {
-				f.fileType = 1
+				f.fileType = txt
 
 				for i, _ := range File {
 					File[i] = bytes.TrimSuffix(File[i], []byte(" "))
@@ -134,7 +144,7 @@ func GetFiles() *[]file {
 			var f file
 
 			f.FileName = fileName[:len(fileName)-6]
-			f.fileType = 6
+			f.fileType = stxt
 
 			file, err := ioutil.ReadFile(fileName)
 			if err != nil {
@@ -154,17 +164,17 @@ func GetFiles() *[]file {
 			)
 			if bytes.HasSuffix([]byte(fileName), []byte("_M.ini")) {
 				f.FileName = fileName[:len(fileName)-6]
-				f.fileType = 4
+				f.fileType = Mini
 				iniOrRns = true
 
 			} else if bytes.HasSuffix([]byte(fileName), []byte("_M.rns")) {
 				f.FileName = fileName[:len(fileName)-6]
-				f.fileType = 5
+				f.fileType = Mrns
 				iniOrRns = true
 
 			} else if bytes.HasSuffix([]byte(fileName), []byte(".ini")) {
 				f.FileName = fileName[:len(fileName)-4]
-				f.fileType = 2
+				f.fileType = ini
 				iniOrRns = true
 			}
 
@@ -215,6 +225,7 @@ func getPackages(lines *[][]byte) *[][]byte {
 				out = append(out, append([]byte{13, 10}, line...))
 			}
 			lastIsPackage = true
+
 		} else if bytes.HasPrefix(line, []byte("TX,")) || bytes.HasPrefix(line, []byte("<,")) {
 			if lastIsPackage {
 				out[len(out)-1] = append(out[len(out)-1], 13, 10) //加入换行
@@ -228,6 +239,7 @@ func getPackages(lines *[][]byte) *[][]byte {
 				out[len(out)-1] = append(out[len(out)-1], line...)
 			}
 			lastIsPackage = true
+
 		} else {
 			lastIsPackage = false
 		}
@@ -357,7 +369,9 @@ func vcrNoCAN(lines *[][]byte) (*[][]byte, bool) {
 
 		} else if string(line[9:13]) == "UART" && string(line[6:8]) == "RX" {
 			if lineStatus == 1 {
-				//过滤TX UART: 81   RX UART: 816
+				//针对夹花重复的情况
+				//      TX UART: 81
+				//      TX UART: 81
 				if lastLine[len(lastLine)-2] != line[15] || lastLine[len(lastLine)-1] != line[16] {
 					out = append(out, lastLine)
 
@@ -385,7 +399,7 @@ func vcrNoCAN(lines *[][]byte) (*[][]byte, bool) {
 	return &out, exsit
 }
 
-//去除TX,6F1,4,40 30 00 00,
+//去除TX,6F1,
 func trimTX6F1(lines *[][]byte) *[][]byte {
 	var (
 		out      [][]byte
@@ -393,15 +407,20 @@ func trimTX6F1(lines *[][]byte) *[][]byte {
 	)
 	for i := range *lines {
 		if bytes.HasPrefix((*lines)[i], []byte("TX,")) {
-
+			//解决如下情形：
+			//RX,6F1,4,40 30 00 00,
+			//TX,6F1,4,40 30 00 00,
 			if string((*lines)[i][1:]) != lastline {
 				out = append(out, (*lines)[i])
 			}
+
 		} else {
 			out = append(out, (*lines)[i])
 		}
+
 		if len((*lines)[i]) > 2 {
 			lastline = string((*lines)[i][1:])
+
 		} else {
 			lastline = ""
 		}
@@ -416,7 +435,7 @@ func CanSimLog(lines *[][]byte) *[][]byte {
 		lastIsTX bool
 	)
 	for i := range *lines {
-		//RX,6F1,4,72 30 00 00    ,
+		//去除多余空格  RX,6F1,4,72 30 00 00    ,
 		tmp := bytes.Replace((*lines)[i], []byte{0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x2C}, []byte{0x2C}, -1)
 		tmp = bytes.Replace(tmp, []byte{0x20, 0x20, 0x20, 0x20, 0x20, 0x2C}, []byte{0x2C}, -1)
 		tmp = bytes.Replace(tmp, []byte{0x20, 0x20, 0x20, 0x20, 0x2C}, []byte{0x2C}, -1)
