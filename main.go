@@ -11,18 +11,19 @@ import (
 
 type file struct {
 	FileName string
-	fileType int // 1.txt; 2.ini; 3.rns; 4._M.ini; 5._M.rns; 6.(bmw)stxt(txt); 7.CANSIMLog file
+	fileType int // 1.txt; 2.ini; 3.rns; 4._M.ini; 5._M.rns; 6.(bmw)stxt(txt); 7.CANSIMLog file; 8.Libra(REC) KW2000
 	File     *[][]byte
 }
 
 const (
-	txt    = 1
-	ini    = 2
-	rns    = 3
-	Mini   = 4
-	Mrns   = 5
-	stxt   = 6
-	CanSim = 7
+	txt     = 1
+	ini     = 2
+	rns     = 3
+	Mini    = 4
+	Mrns    = 5
+	stxt    = 6
+	CanSim  = 7
+	LibraKW = 8
 )
 
 func main() {
@@ -50,13 +51,14 @@ func main() {
 如有问题，请尝试最新版本  https://github.com/wweir/BMW_Toolbox
 仍有问题或有其它需求，联系  Wei.Wei@snapon.com
 按<Enter>退出`)
+		fmt.Println(os.Args[0] + "/Header.rns")
 		fmt.Scanln()
 		return
 	}
 	filelist := GetFiles()
 	for i, _ := range *filelist {
-		if (*filelist)[i].fileType == txt { //txt
-
+		switch (*filelist)[i].fileType {
+		case txt:
 			out, isOrNot := vcrCAN((*filelist)[i].File)
 			if isOrNot {
 				out = trimTX6F1(out)
@@ -67,35 +69,33 @@ func main() {
 			if isOrNot {
 				ioutil.WriteFile((*filelist)[i].FileName+"_M.rns", bytes.Join(*out, []byte{13, 10}), 0666)
 			}
-			//ini
-		} else if (*filelist)[i].fileType == ini {
+		case ini:
 			out := trimTX6F1((*filelist)[i].File)
 
 			lengthError(out)
 			iniTrimBellyfat(out)
 
 			ioutil.WriteFile((*filelist)[i].FileName+"_M.ini", bytes.Join(*out, []byte{13, 10}), 0666)
-			//_M.ini
-		} else if (*filelist)[i].fileType == Mini {
+		case Mini:
 			out := getPackages((*filelist)[i].File)
 			out = DeleteRepeat(out)
 
 			ioutil.WriteFile((*filelist)[i].FileName+"_MM.ini", bytes.Join(*out, []byte{13, 10}), 0666)
-			//_M.rns
-		} else if (*filelist)[i].fileType == Mrns {
+		case Mrns:
 			out := getPackages((*filelist)[i].File)
 			out = DeleteRepeat(out)
 
 			outFile := append((*((*filelist)[i].File))[:9], *out...)
 			ioutil.WriteFile((*filelist)[i].FileName+"_MM.rns", bytes.Join(outFile, []byte{13, 10}), 0666)
-
-		} else if (*filelist)[i].fileType == stxt {
+		case stxt:
 			out := ComWatch((*filelist)[i].File)
 			ioutil.WriteFile((*filelist)[i].FileName+"_CM.rns", bytes.Join(*out, []byte{13, 10}), 0666)
-
-		} else if (*filelist)[i].fileType == CanSim {
+		case CanSim:
 			out := CanSimLog((*filelist)[i].File)
 			ioutil.WriteFile((*filelist)[i].FileName+".ini", bytes.Join(*out, []byte{13, 10}), 0666)
+		case LibraKW:
+			out := recKWHS((*filelist)[i].File)
+			ioutil.WriteFile((*filelist)[i].FileName+"_REC.rns", bytes.Join(*out, []byte{13, 10}), 0666)
 		}
 	}
 }
@@ -105,7 +105,7 @@ func GetFiles() *[]file {
 	fileNames := os.Args[1:]
 	files := []file{}
 	for _, fileName := range fileNames {
-		if bytes.HasSuffix([]byte(fileName), []byte(".txt")) {
+		if bytes.HasSuffix([]byte(fileName), []byte(".txt")) || bytes.HasSuffix([]byte(fileName), []byte(".TXT")) {
 			var f file
 
 			f.FileName = fileName[:len(fileName)-4]
@@ -157,6 +157,21 @@ func GetFiles() *[]file {
 
 			files = append(files, f)
 
+		} else if bytes.HasSuffix([]byte(fileName), []byte(".REC")) {
+			var f file
+			f.FileName = fileName[:len(fileName)-4]
+			f.fileType = LibraKW
+
+			out, err := ioutil.ReadFile(fileName)
+			if err != nil {
+				log.Println("文件", fileName, "读取出错:\n")
+				log.Println(err)
+			}
+
+			f.File = &([][]byte{out})
+
+			files = append(files, f)
+
 		} else {
 			var (
 				f        file
@@ -172,7 +187,7 @@ func GetFiles() *[]file {
 				f.fileType = Mrns
 				iniOrRns = true
 
-			} else if bytes.HasSuffix([]byte(fileName), []byte(".ini")) {
+			} else if bytes.HasSuffix([]byte(fileName), []byte(".ini")) || bytes.HasSuffix([]byte(fileName), []byte(".INI")) {
 				f.FileName = fileName[:len(fileName)-4]
 				f.fileType = ini
 				iniOrRns = true
@@ -265,6 +280,63 @@ func DeleteRepeat(lines *[][]byte) *[][]byte {
 		}
 	}
 	return &out
+}
+
+//For Libra KWHS BMW
+func recKWHS(all *[][]byte) *[][]byte {
+	var (
+		bin      []byte
+		rns      [][]byte
+		TS       int //TS(ms)
+		TSL      int //TSLast
+		line     []byte
+		thisByte [2]byte
+		err00    bool
+	)
+	devide := bytes.Index((*all)[0], []byte{0x2a, 0x0d, 0x0a, 0x3a, 0x3a, 0x3a, 0x3a, 0x0d, 0x0a})
+
+	rns = BMW_KWHS_Header()
+	header := bytes.Split((*all)[0][:devide], []byte{13, 10})
+	for i := 17; i < 29; i++ {
+		rns = append(rns, append([]byte("//"), header[i]...))
+	}
+
+	bin = (*all)[0][devide+10:]
+	lenBin := len(bin) - 4
+	for i := 0; i < lenBin; i += 9 {
+		TS = int(bin[i])<<16 + int(bin[i+1])<<8 + int(bin[i+2])
+
+		if bin[i+4]&0xF < 10 {
+			thisByte[1] = bin[i+4]&0xF + 0x30
+		} else {
+			thisByte[1] = bin[i+4]&0xF + 0x37
+		}
+		if (bin[i+4]&0xF0)>>4 < 10 {
+			thisByte[0] = (bin[i+4]&0xF0)>>4 + 0x30
+		} else {
+			thisByte[0] = (bin[i+4]&0xF0)>>4 + 0x37
+		}
+
+		if TS-TSL > 25 && lenBin > i+20 {
+			err00 = false
+			rns = append(rns, line)
+			if bin[i+22] == 0xf1 {
+				line = append([]byte("\r\n>,"), thisByte[0], thisByte[1])
+			} else if bin[i+13] == 0xf1 {
+				line = append([]byte("<,"), thisByte[0], thisByte[1])
+			} else if bin[i+4] == 0 {
+				err00 = true
+			} else {
+				line = append([]byte("//ERROR LINE\r\n//,"), thisByte[0], thisByte[1])
+			}
+		} else if err00 {
+		} else {
+			line = append(line, byte(','), thisByte[0], thisByte[1])
+		}
+		TSL = TS
+	}
+	rns = append(rns, line)
+	return &rns
 }
 
 //ComWatch log file
